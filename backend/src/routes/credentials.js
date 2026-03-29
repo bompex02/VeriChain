@@ -1,0 +1,32 @@
+import express from "express";
+import contract from "../services/contractService.js";
+
+const router = express.Router();
+
+router.post("/issue", async (req, res) => {
+  try {
+    const { recipient, uri } = req.body;
+
+    const tx = await contract.issueCredential(recipient, uri);
+    await tx.wait();
+
+    res.json({
+      success: true,
+      txHash: tx.hash
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get("/verify/:id", async (req, res) => {
+  try {
+    const valid = await contract.verifyCredential(req.params.id);
+
+    res.json({ valid });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+export default router;
