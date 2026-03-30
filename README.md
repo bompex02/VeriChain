@@ -26,12 +26,17 @@ Starten (empfohlenes Ablaufbeispiel)
    cd blockchain
    npx hardhat node
    ```
-2. Backend starten:
+   Danach deploy (im Root):
+   ```bash
+   npx hardhat run scripts/deploy.ts --network localhost
+   ```
+   
+3. Backend starten:
    ```bash
    cd backend
    node src/app.js
    ```
-3. Frontend starten:
+4. Frontend starten:
    ```bash
    cd frontend
    npm run dev
