@@ -26,7 +26,7 @@ Starten (empfohlenes Ablaufbeispiel)
    cd blockchain
    npx hardhat node
    ```
-   Danach deploy (im Root):
+   Danach deploy (in /blockchain):
    ```bash
    npx hardhat run scripts/deploy.ts --network localhost
    ```
