@@ -43,7 +43,21 @@ router.post("/issue", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+router.post("/activate", async (req, res) => {
+  try {
+    const { id } = req.body;
 
+    const tx = await contract.activateCredential(id);
+    await tx.wait();
+
+    res.json({
+      success: true,
+      txHash: tx.hash
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 router.get("/verify/:id", async (req, res) => {
   try {
     const valid = await contract.verifyCredential(req.params.id);

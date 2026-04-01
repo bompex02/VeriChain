@@ -30,6 +30,11 @@ contract Credentials {
         credentials[id].revoked = true;
     }
 
+    function activateCredential(uint256 id) public {
+        require(msg.sender == credentials[id].issuer, "Only issuer can activate");
+        credentials[id].revoked = false;
+    }
+
     function verifyCredential(uint256 id) public view returns (bool) {
         return !credentials[id].revoked;
     }
