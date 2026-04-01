@@ -1,0 +1,11 @@
+{
+  "name": "verichain",
+  "version": "1.0.0",
+  "description": "VeriChain project root",
+  "scripts": {
+    "dev": "concurrently \"cd backend && node src/app.js\" \"cd frontend && npm run dev\" \"cd blockchain && npm run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
