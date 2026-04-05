@@ -99,19 +99,18 @@
             />
           </div>
 
-          <!-- File Upload for Custom JSON -->
+          <!-- File Upload (Optional) -->
           <div>
             <label for="file" class="block text-sm font-medium text-gray-700 mb-2">
-              Upload Custom JSON (Optional)
+              Upload File (Optional)
             </label>
             <input
               id="file"
               type="file"
-              accept=".json"
               @change="handleFileUpload"
               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
             />
-            <p class="mt-1 text-sm text-gray-500">Upload a custom JSON file to override the form data</p>
+            <p class="mt-1 text-sm text-gray-500">Any file is allowed. JSON files can also prefill the form.</p>
           </div>
 
           <!-- Submit Button -->
@@ -190,6 +189,7 @@ const submitting = ref(false)
 const success = ref(false)
 const error = ref('')
 const txHash = ref('')
+const selectedFile = ref<File | null>(null)
 
 const uploadToIPFS = async (file: File) => {
   return await uploadFile(file)
@@ -198,20 +198,22 @@ const uploadToIPFS = async (file: File) => {
 const handleFileUpload = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
-  const ipfsUrl = await uploadToIPFS(file)
-  if (ipfsUrl) {
-    alert('File uploaded to IPFS: ' + ipfsUrl)
-  }
-  const reader = new FileReader()
-  reader.onload = (e) => {
-    try {
-      const jsonData = JSON.parse(e.target?.result as string)
-      Object.assign(form.value, jsonData)
-    } catch (err) {
-      alert('Invalid JSON file')
+
+  selectedFile.value = file
+
+  const isJson = file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')
+  if (isJson) {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const jsonData = JSON.parse(e.target?.result as string)
+        Object.assign(form.value, jsonData)
+      } catch (err) {
+        // Ignore invalid JSON content and keep normal file upload behavior.
+      }
     }
+    reader.readAsText(file)
   }
-  reader.readAsText(file)
 }
 
 const handleSubmit = async () => {
@@ -221,8 +223,16 @@ const handleSubmit = async () => {
   txHash.value = ''
 
   try {
+    let originalFileUri: string | null = null
+    if (selectedFile.value) {
+      const uploadedUri = await uploadToIPFS(selectedFile.value)
+      if (!uploadedUri) throw new Error('IPFS upload failed')
+      originalFileUri = uploadedUri
+    }
+
     const credentialData = {
       type: ['VerifiableCredential', form.value.type],
+      recipient: form.value.recipient,
       issuer: {
         name: form.value.issuer
       },
@@ -230,11 +240,13 @@ const handleSubmit = async () => {
       credentialSubject: {
         name: form.value.name,
         description: form.value.description
-      }
+      },
+      originalFileUri
     }
 
-    const file = new File([JSON.stringify(credentialData)], 'credential.json', { type: 'application/json' })
-    const uri = await uploadToIPFS(file)
+    const jsonFile = new File([JSON.stringify(credentialData, null, 2)], 'credential.json', { type: 'application/json' })
+    const uri = await uploadToIPFS(jsonFile)
+
     if (!uri) throw new Error('IPFS upload failed')
 
     const response = await $fetch<{ success: boolean; txHash: string }>(`${config.public.apiUrl}/credentials/issue`, {
@@ -257,6 +269,7 @@ const handleSubmit = async () => {
         description: '',
         issueDate: ''
       }
+      selectedFile.value = null
     } else {
       throw new Error('Failed to issue credential')
     }

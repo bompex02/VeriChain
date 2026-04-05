@@ -1,6 +1,9 @@
+import { useRuntimeConfig } from "nuxt/app";
+
 export function usePinataClient(jwt: string) {
+  const config = useRuntimeConfig()
   async function uploadFile(file: File) {
-    const url = process.env.NUXT_PINATA_API_URL || '';
+    const url = String(config.public.PINATA_API_URL);
     const formData = new FormData();
     formData.append("file", file);
     try {

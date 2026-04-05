@@ -88,11 +88,19 @@
               <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
               <p class="mt-2 text-gray-600">Loading details...</p>
             </div>
-            <div v-else-if="modalError" class="text-red-600">
-              <p>{{ modalError }}</p>
-            </div>
             <div v-else class="bg-gray-50 p-4 rounded-md">
+              <p v-if="modalError" class="text-sm text-red-600 mb-3">{{ modalError }}</p>
               <pre class="text-sm text-gray-800 whitespace-pre-wrap">{{ modalContent }}</pre>
+              <div v-if="hasOriginalFileLink" class="mt-3">
+                <a
+                  :href="modalUri"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-indigo-600 hover:text-indigo-900 underline"
+                >
+                  Open original file
+                </a>
+              </div>
             </div>
             <div class="flex justify-end mt-4">
               <button
@@ -111,7 +119,7 @@
 
 <script setup lang="ts">
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
 
 const config = useRuntimeConfig()
@@ -130,6 +138,20 @@ const showModal = ref(false)
 const modalLoading = ref(false)
 const modalError = ref('')
 const modalContent = ref('')
+const modalUri = ref('')
+
+const toGatewayUrl = (uri: string) => {
+  if (uri.startsWith('ipfs://')) {
+    return `https://gateway.pinata.cloud/ipfs/${uri.replace('ipfs://', '')}`
+  }
+  return uri
+}
+
+const hasOriginalFileLink = computed(() => {
+  return modalUri.value.startsWith('http://') ||
+    modalUri.value.startsWith('https://') ||
+    modalUri.value.startsWith('ipfs://')
+})
 
 const shortenAddress = (address: string) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -160,6 +182,7 @@ const viewDetails = async (cred: Credential) => {
   modalLoading.value = true
   modalError.value = ''
   modalContent.value = ''
+  modalUri.value = ''
 
   try {
     if (cred.metadataURI.startsWith('data:')) {
@@ -167,13 +190,33 @@ const viewDetails = async (cred: Credential) => {
       const base64 = cred.metadataURI.split(',')[1]
       const json = JSON.parse(atob(base64))
       modalContent.value = JSON.stringify(json, null, 2)
+      if (typeof json?.originalFileUri === 'string' && json.originalFileUri.trim() !== '') {
+        modalUri.value = toGatewayUrl(json.originalFileUri)
+      }
     } else {
-      // Fetch from URL
-      const response = await $fetch(cred.metadataURI)
-      modalContent.value = JSON.stringify(response, null, 2)
+      // Fetch as plain response so we can handle JSON and binary files.
+      const metadataUrl = toGatewayUrl(cred.metadataURI)
+      const response = await fetch(metadataUrl)
+      if (!response.ok) {
+        throw new Error('Could not fetch metadata URI')
+      }
+
+      const contentType = response.headers.get('content-type') || ''
+      if (contentType.includes('application/json')) {
+        const json = await response.json()
+        modalContent.value = JSON.stringify(json, null, 2)
+        if (typeof json?.originalFileUri === 'string' && json.originalFileUri.trim() !== '') {
+          modalUri.value = toGatewayUrl(json.originalFileUri)
+        }
+      } else {
+        modalContent.value = `Non-JSON file detected (${contentType || 'unknown type'}).`
+        // Legacy credentials may point directly to the uploaded file.
+        modalUri.value = metadataUrl
+      }
     }
   } catch (err) {
-    modalError.value = 'Failed to load credential details'
+    modalError.value = 'Details could not be parsed as JSON.'
+    modalContent.value = 'Use the button below to open the original file if available.'
   } finally {
     modalLoading.value = false
   }
@@ -181,6 +224,7 @@ const viewDetails = async (cred: Credential) => {
 
 const closeModal = () => {
   showModal.value = false
+  modalUri.value = ''
 }
 
 const revokeCredential = async (id: number) => {
