@@ -172,8 +172,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
+import { usePinataClient } from '../composables/usePinataClient'
 
 const config = useRuntimeConfig()
+const { uploadFile } = usePinataClient(String(config.public.PINATA_JWT))
 
 const form = ref({
   recipient: '',
@@ -189,21 +191,27 @@ const success = ref(false)
 const error = ref('')
 const txHash = ref('')
 
-const handleFileUpload = (event: Event) => {
+const uploadToIPFS = async (file: File) => {
+  return await uploadFile(file)
+}
+
+const handleFileUpload = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
-  if (file) {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      try {
-        const jsonData = JSON.parse(e.target?.result as string)
-        // Override form data with JSON
-        Object.assign(form.value, jsonData)
-      } catch (err) {
-        alert('Invalid JSON file')
-      }
-    }
-    reader.readAsText(file)
+  if (!file) return
+  const ipfsUrl = await uploadToIPFS(file)
+  if (ipfsUrl) {
+    alert('File uploaded to IPFS: ' + ipfsUrl)
   }
+  const reader = new FileReader()
+  reader.onload = (e) => {
+    try {
+      const jsonData = JSON.parse(e.target?.result as string)
+      Object.assign(form.value, jsonData)
+    } catch (err) {
+      alert('Invalid JSON file')
+    }
+  }
+  reader.readAsText(file)
 }
 
 const handleSubmit = async () => {
@@ -213,9 +221,7 @@ const handleSubmit = async () => {
   txHash.value = ''
 
   try {
-    // Generate credential JSON
     const credentialData = {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
       type: ['VerifiableCredential', form.value.type],
       issuer: {
         name: form.value.issuer
@@ -227,8 +233,9 @@ const handleSubmit = async () => {
       }
     }
 
-    // For demo purposes, we'll use a data URL. In production, upload to IPFS or a server.
-    const uri = `data:application/json;base64,${btoa(JSON.stringify(credentialData))}`
+    const file = new File([JSON.stringify(credentialData)], 'credential.json', { type: 'application/json' })
+    const uri = await uploadToIPFS(file)
+    if (!uri) throw new Error('IPFS upload failed')
 
     const response = await $fetch<{ success: boolean; txHash: string }>(`${config.public.apiUrl}/credentials/issue`, {
       method: 'POST',
@@ -242,7 +249,6 @@ const handleSubmit = async () => {
     if (response.success) {
       success.value = true
       txHash.value = response.txHash
-      // Reset form
       form.value = {
         recipient: '',
         type: '',
