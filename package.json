@@ -7,9 +7,5 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
-  },
-  "dependencies": {
-    "@storacha/client": "^2.1.3",
-    "web3.storage": "^4.5.5"
   }
 }
