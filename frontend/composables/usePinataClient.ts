@@ -1,30 +1,13 @@
 import { useRuntimeConfig } from "nuxt/app";
+import { PinataUploader } from '../services/ipfs/PinataUploader';
 
 export function usePinataClient(jwt: string) {
-  const config = useRuntimeConfig()
+  const config = useRuntimeConfig();
+  const uploader = new PinataUploader(jwt, String(config.public.PINATA_API_URL));
+
   async function uploadFile(file: File) {
-    const url = String(config.public.PINATA_API_URL);
-    const formData = new FormData();
-    formData.append("file", file);
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${jwt}`,
-        },
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.IpfsHash) {
-        return `https://gateway.pinata.cloud/ipfs/${data.IpfsHash}`;
-      } else {
-        console.error('Pinata response missing IpfsHash:', data);
-        return null;
-      }
-    } catch (e) {
-      console.error("Pinata Upload Error:", e);
-      return null;
-    }
+    return await uploader.uploadFile(file);
   }
+
   return { uploadFile };
 }
