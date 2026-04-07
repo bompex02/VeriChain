@@ -39,7 +39,3 @@ npx hardhat run scripts/deploy.ts --network localhost
 2. scripts/deploy.ts
 3. hardhat.config.ts
 4. ../shared/abi.json is used by backend and frontend
-
-*** Delete File: /home/marcus/repos/VeriChain/backend/README_BACKEND.md
-*** Delete File: /home/marcus/repos/VeriChain/frontend/README_FRONTEND.md
-*** Delete File: /home/marcus/repos/VeriChain/blockchain/README_BLOCKCHAIN.md
