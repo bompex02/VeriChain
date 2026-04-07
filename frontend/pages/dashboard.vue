@@ -88,11 +88,19 @@
               <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto"></div>
               <p class="mt-2 text-gray-600">Loading details...</p>
             </div>
-            <div v-else-if="modalError" class="text-red-600">
-              <p>{{ modalError }}</p>
-            </div>
             <div v-else class="bg-gray-50 p-4 rounded-md">
+              <p v-if="modalError" class="text-sm text-red-600 mb-3">{{ modalError }}</p>
               <pre class="text-sm text-gray-800 whitespace-pre-wrap">{{ modalContent }}</pre>
+              <div v-if="hasOriginalFileLink" class="mt-3">
+                <a
+                  :href="modalUri"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="text-indigo-600 hover:text-indigo-900 underline"
+                >
+                  Open original file
+                </a>
+              </div>
             </div>
             <div class="flex justify-end mt-4">
               <button
@@ -111,25 +119,27 @@
 
 <script setup lang="ts">
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
+import type { CredentialRecord } from '../types/credential'
 
 const config = useRuntimeConfig()
-interface Credential {
-  id: number
-  issuer: string
-  recipient: string
-  metadataURI: string
-  timestamp: number
-  revoked: boolean
-}
-const credentials = ref<Credential[]>([])
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
+
+const credentials = ref<CredentialRecord[]>([])
 const loading = ref(true)
 const error = ref('')
 const showModal = ref(false)
 const modalLoading = ref(false)
 const modalError = ref('')
 const modalContent = ref('')
+const modalUri = ref('')
+
+const hasOriginalFileLink = computed(() => {
+  return CredentialService.hasExternalUri(modalUri.value)
+})
 
 const shortenAddress = (address: string) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`
@@ -141,11 +151,9 @@ onMounted(async () => {
 
 const loadCredentials = async () => {
   try {
-    const response = await $fetch(`${config.public.apiUrl}/credentials/all`)
-    if (Array.isArray(response)) {
-      credentials.value = response
-    } else {
-      error.value = 'Invalid data format received'
+    credentials.value = await credentialService.getAll()
+    if (credentials.value.length === 0) {
+      error.value = ''
     }
   } catch (err) {
     console.error(err)
@@ -155,25 +163,21 @@ const loadCredentials = async () => {
   }
 }
 
-const viewDetails = async (cred: Credential) => {
+const viewDetails = async (cred: CredentialRecord) => {
   showModal.value = true
   modalLoading.value = true
   modalError.value = ''
   modalContent.value = ''
+  modalUri.value = ''
 
   try {
-    if (cred.metadataURI.startsWith('data:')) {
-      // Handle data URL
-      const base64 = cred.metadataURI.split(',')[1]
-      const json = JSON.parse(atob(base64))
-      modalContent.value = JSON.stringify(json, null, 2)
-    } else {
-      // Fetch from URL
-      const response = await $fetch(cred.metadataURI)
-      modalContent.value = JSON.stringify(response, null, 2)
-    }
+    const metadataView = await CredentialService.resolveMetadataView(cred.metadataURI)
+    modalContent.value = metadataView.content
+    modalUri.value = metadataView.originalFileUri
+    modalError.value = metadataView.errorMessage
   } catch (err) {
-    modalError.value = 'Failed to load credential details'
+    modalError.value = 'Details could not be parsed as JSON.'
+    modalContent.value = 'Use the button below to open the original file if available.'
   } finally {
     modalLoading.value = false
   }
@@ -181,17 +185,14 @@ const viewDetails = async (cred: Credential) => {
 
 const closeModal = () => {
   showModal.value = false
+  modalUri.value = ''
 }
 
 const revokeCredential = async (id: number) => {
   if (!confirm('Are you sure you want to revoke this credential?')) return
 
   try {
-    await $fetch(`${config.public.apiUrl}/credentials/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: { id }
-    })
+    await credentialService.revoke(id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to revoke credential')
@@ -202,11 +203,7 @@ const activateCredential = async (id: number) => {
   if (!confirm('Are you sure you want to activate this credential?')) return
 
   try {
-    await $fetch(`${config.public.apiUrl}/credentials/activate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: { id }
-    })
+    await credentialService.activate(id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to activate credential')

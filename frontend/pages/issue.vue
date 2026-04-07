@@ -99,19 +99,18 @@
             />
           </div>
 
-          <!-- File Upload for Custom JSON -->
+          <!-- File Upload (Optional) -->
           <div>
             <label for="file" class="block text-sm font-medium text-gray-700 mb-2">
-              Upload Custom JSON (Optional)
+              Upload File (Optional)
             </label>
             <input
               id="file"
               type="file"
-              accept=".json"
               @change="handleFileUpload"
               class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
             />
-            <p class="mt-1 text-sm text-gray-500">Upload a custom JSON file to override the form data</p>
+            <p class="mt-1 text-sm text-gray-500">Any file is allowed. JSON files can also prefill the form.</p>
           </div>
 
           <!-- Submit Button -->
@@ -172,34 +171,51 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
+import { usePinataClient } from '../composables/usePinataClient'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
+import type { CredentialFormData } from '../types/credential'
 
 const config = useRuntimeConfig()
+const { uploadFile } = usePinataClient(String(config.public.PINATA_JWT))
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
 
-const form = ref({
+const emptyForm = (): CredentialFormData => ({
   recipient: '',
   type: '',
   name: '',
   issuer: '',
   description: '',
-  issueDate: ''
+  issueDate: '',
 })
+
+const form = ref<CredentialFormData>(emptyForm())
 
 const submitting = ref(false)
 const success = ref(false)
 const error = ref('')
 const txHash = ref('')
+const selectedFile = ref<File | null>(null)
 
-const handleFileUpload = (event: Event) => {
+const uploadToIPFS = async (file: File) => {
+  return await uploadFile(file)
+}
+
+const handleFileUpload = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
-  if (file) {
+  if (!file) return
+
+  selectedFile.value = file
+
+  const isJson = file.type === 'application/json' || file.name.toLowerCase().endsWith('.json')
+  if (isJson) {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
         const jsonData = JSON.parse(e.target?.result as string)
-        // Override form data with JSON
         Object.assign(form.value, jsonData)
       } catch (err) {
-        alert('Invalid JSON file')
+        // Ignore invalid JSON content and keep normal file upload behavior.
       }
     }
     reader.readAsText(file)
@@ -213,44 +229,27 @@ const handleSubmit = async () => {
   txHash.value = ''
 
   try {
-    // Generate credential JSON
-    const credentialData = {
-      '@context': ['https://www.w3.org/2018/credentials/v1'],
-      type: ['VerifiableCredential', form.value.type],
-      issuer: {
-        name: form.value.issuer
-      },
-      issuanceDate: new Date(form.value.issueDate).toISOString(),
-      credentialSubject: {
-        name: form.value.name,
-        description: form.value.description
-      }
+    let originalFileUri: string | null = null
+    if (selectedFile.value) {
+      const uploadedUri = await uploadToIPFS(selectedFile.value)
+      if (!uploadedUri) throw new Error('IPFS upload failed')
+      originalFileUri = uploadedUri
     }
 
-    // For demo purposes, we'll use a data URL. In production, upload to IPFS or a server.
-    const uri = `data:application/json;base64,${btoa(JSON.stringify(credentialData))}`
+    const credentialData = CredentialService.buildMetadata(form.value, originalFileUri)
 
-    const response = await $fetch<{ success: boolean; txHash: string }>(`${config.public.apiUrl}/credentials/issue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: {
-        recipient: form.value.recipient,
-        uri
-      }
-    })
+    const jsonFile = new File([JSON.stringify(credentialData, null, 2)], 'credential.json', { type: 'application/json' })
+    const uri = await uploadToIPFS(jsonFile)
+
+    if (!uri) throw new Error('IPFS upload failed')
+
+    const response = await credentialService.issue(form.value.recipient, uri)
 
     if (response.success) {
       success.value = true
       txHash.value = response.txHash
-      // Reset form
-      form.value = {
-        recipient: '',
-        type: '',
-        name: '',
-        issuer: '',
-        description: '',
-        issueDate: ''
-      }
+      form.value = emptyForm()
+      selectedFile.value = null
     } else {
       throw new Error('Failed to issue credential')
     }

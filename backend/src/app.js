@@ -2,6 +2,7 @@ import express from "express";
 import credentialsRoutes from "./routes/credentials.js";
 import cors from "cors";
 import dotenv from "dotenv";
+import { errorHandler } from "./middlewares/errorHandler.js";
 
 dotenv.config();
 
@@ -38,6 +39,7 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 app.use("/credentials", credentialsRoutes);
+app.use(errorHandler);
 
 app.listen(Number(PORT), () => {
   console.log(`Backend running on port ${PORT}`);
