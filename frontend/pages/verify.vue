@@ -40,9 +40,12 @@
 
 import { useRuntimeConfig } from 'nuxt/app'
 import { ref } from 'vue'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
 
 
 const config = useRuntimeConfig()
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
 const id = ref('')
 const status = ref('')
 const verifying = ref(false)
@@ -51,8 +54,8 @@ const handleVerify = async () => {
   verifying.value = true
   status.value = ''
   try {
-    const response = await $fetch<{ valid: boolean }>(`${config.public.apiUrl}/credentials/verify/${id.value}`)
-    status.value = response.valid ? 'Valid' : 'Revoked'
+    const valid = await credentialService.verify(id.value)
+    status.value = valid ? 'Valid' : 'Revoked'
   } catch (err) {
     console.error(err)
     alert('Error verifying credential')

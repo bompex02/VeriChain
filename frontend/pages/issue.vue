@@ -172,18 +172,24 @@
 import { ref } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
 import { usePinataClient } from '../composables/usePinataClient'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
+import type { CredentialFormData } from '../types/credential'
 
 const config = useRuntimeConfig()
 const { uploadFile } = usePinataClient(String(config.public.PINATA_JWT))
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
 
-const form = ref({
+const emptyForm = (): CredentialFormData => ({
   recipient: '',
   type: '',
   name: '',
   issuer: '',
   description: '',
-  issueDate: ''
+  issueDate: '',
 })
+
+const form = ref<CredentialFormData>(emptyForm())
 
 const submitting = ref(false)
 const success = ref(false)
@@ -230,45 +236,19 @@ const handleSubmit = async () => {
       originalFileUri = uploadedUri
     }
 
-    const credentialData = {
-      type: ['VerifiableCredential', form.value.type],
-      recipient: form.value.recipient,
-      issuer: {
-        name: form.value.issuer
-      },
-      issuanceDate: new Date(form.value.issueDate).toISOString(),
-      credentialSubject: {
-        name: form.value.name,
-        description: form.value.description
-      },
-      originalFileUri
-    }
+    const credentialData = CredentialService.buildMetadata(form.value, originalFileUri)
 
     const jsonFile = new File([JSON.stringify(credentialData, null, 2)], 'credential.json', { type: 'application/json' })
     const uri = await uploadToIPFS(jsonFile)
 
     if (!uri) throw new Error('IPFS upload failed')
 
-    const response = await $fetch<{ success: boolean; txHash: string }>(`${config.public.apiUrl}/credentials/issue`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: {
-        recipient: form.value.recipient,
-        uri
-      }
-    })
+    const response = await credentialService.issue(form.value.recipient, uri)
 
     if (response.success) {
       success.value = true
       txHash.value = response.txHash
-      form.value = {
-        recipient: '',
-        type: '',
-        name: '',
-        issuer: '',
-        description: '',
-        issueDate: ''
-      }
+      form.value = emptyForm()
       selectedFile.value = null
     } else {
       throw new Error('Failed to issue credential')

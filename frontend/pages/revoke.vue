@@ -40,8 +40,11 @@
 
 import { ref } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
 
 const config = useRuntimeConfig()
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
 const id = ref('')
 const message = ref('')
 const revoking = ref(false)
@@ -50,17 +53,12 @@ const handleRevoke = async () => {
   revoking.value = true
   message.value = ''
   try {
-    const response = await $fetch<{ ok?: boolean; error?: string }>(`${config.public.apiUrl}/credentials/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: { id: parseInt(id.value) }
-    })
-
-    if (response && response.ok) {
+    const response = await credentialService.revoke(parseInt(id.value, 10))
+    if (response.success) {
       message.value = 'Credential revoked successfully!'
       id.value = ''
     } else {
-      message.value = `Error: ${response?.error || 'Failed to revoke'}`
+      message.value = 'Error: Failed to revoke'
     }
   } catch (err) {
     message.value = 'Network error occurred'

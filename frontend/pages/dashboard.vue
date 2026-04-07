@@ -121,17 +121,14 @@
 
 import { ref, onMounted, computed } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
+import { ApiClient } from '../services/http/ApiClient'
+import { CredentialService } from '../services/credentials/CredentialService'
+import type { CredentialRecord } from '../types/credential'
 
 const config = useRuntimeConfig()
-interface Credential {
-  id: number
-  issuer: string
-  recipient: string
-  metadataURI: string
-  timestamp: number
-  revoked: boolean
-}
-const credentials = ref<Credential[]>([])
+const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
+
+const credentials = ref<CredentialRecord[]>([])
 const loading = ref(true)
 const error = ref('')
 const showModal = ref(false)
@@ -140,17 +137,8 @@ const modalError = ref('')
 const modalContent = ref('')
 const modalUri = ref('')
 
-const toGatewayUrl = (uri: string) => {
-  if (uri.startsWith('ipfs://')) {
-    return `https://gateway.pinata.cloud/ipfs/${uri.replace('ipfs://', '')}`
-  }
-  return uri
-}
-
 const hasOriginalFileLink = computed(() => {
-  return modalUri.value.startsWith('http://') ||
-    modalUri.value.startsWith('https://') ||
-    modalUri.value.startsWith('ipfs://')
+  return CredentialService.hasExternalUri(modalUri.value)
 })
 
 const shortenAddress = (address: string) => {
@@ -163,11 +151,9 @@ onMounted(async () => {
 
 const loadCredentials = async () => {
   try {
-    const response = await $fetch(`${config.public.apiUrl}/credentials/all`)
-    if (Array.isArray(response)) {
-      credentials.value = response
-    } else {
-      error.value = 'Invalid data format received'
+    credentials.value = await credentialService.getAll()
+    if (credentials.value.length === 0) {
+      error.value = ''
     }
   } catch (err) {
     console.error(err)
@@ -177,7 +163,7 @@ const loadCredentials = async () => {
   }
 }
 
-const viewDetails = async (cred: Credential) => {
+const viewDetails = async (cred: CredentialRecord) => {
   showModal.value = true
   modalLoading.value = true
   modalError.value = ''
@@ -185,35 +171,10 @@ const viewDetails = async (cred: Credential) => {
   modalUri.value = ''
 
   try {
-    if (cred.metadataURI.startsWith('data:')) {
-      // Handle data URL
-      const base64 = cred.metadataURI.split(',')[1]
-      const json = JSON.parse(atob(base64))
-      modalContent.value = JSON.stringify(json, null, 2)
-      if (typeof json?.originalFileUri === 'string' && json.originalFileUri.trim() !== '') {
-        modalUri.value = toGatewayUrl(json.originalFileUri)
-      }
-    } else {
-      // Fetch as plain response so we can handle JSON and binary files.
-      const metadataUrl = toGatewayUrl(cred.metadataURI)
-      const response = await fetch(metadataUrl)
-      if (!response.ok) {
-        throw new Error('Could not fetch metadata URI')
-      }
-
-      const contentType = response.headers.get('content-type') || ''
-      if (contentType.includes('application/json')) {
-        const json = await response.json()
-        modalContent.value = JSON.stringify(json, null, 2)
-        if (typeof json?.originalFileUri === 'string' && json.originalFileUri.trim() !== '') {
-          modalUri.value = toGatewayUrl(json.originalFileUri)
-        }
-      } else {
-        modalContent.value = `Non-JSON file detected (${contentType || 'unknown type'}).`
-        // Legacy credentials may point directly to the uploaded file.
-        modalUri.value = metadataUrl
-      }
-    }
+    const metadataView = await CredentialService.resolveMetadataView(cred.metadataURI)
+    modalContent.value = metadataView.content
+    modalUri.value = metadataView.originalFileUri
+    modalError.value = metadataView.errorMessage
   } catch (err) {
     modalError.value = 'Details could not be parsed as JSON.'
     modalContent.value = 'Use the button below to open the original file if available.'
@@ -231,11 +192,7 @@ const revokeCredential = async (id: number) => {
   if (!confirm('Are you sure you want to revoke this credential?')) return
 
   try {
-    await $fetch(`${config.public.apiUrl}/credentials/revoke`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: { id }
-    })
+    await credentialService.revoke(id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to revoke credential')
@@ -246,11 +203,7 @@ const activateCredential = async (id: number) => {
   if (!confirm('Are you sure you want to activate this credential?')) return
 
   try {
-    await $fetch(`${config.public.apiUrl}/credentials/activate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: { id }
-    })
+    await credentialService.activate(id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to activate credential')
