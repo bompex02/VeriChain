@@ -7,5 +7,8 @@
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "@metamask/providers": "^22.1.1"
   }
 }
