@@ -111,3 +111,31 @@ TypeScript code was refactored into services and domain types:
 ### IPFS Data Model
 
 Issuing always stores credential.json on IPFS. This metadata includes form data plus optional originalFileUri. The dashboard shows metadata in View and displays Open original file when originalFileUri exists.
+
+
+# Development Workflow
+
+```mermaid
+sequenceDiagram
+	participant User
+	participant Frontend (MetaMask)
+	participant Backend (API)
+	participant Blockchain
+
+	User->>Frontend (MetaMask): 1. Aktion auslösen (z.B. Credential ausstellen)
+	Frontend (MetaMask)->>Frontend (MetaMask): 2. Transaktion vorbereiten
+	Frontend (MetaMask)->>User: 3. Signatur-Anfrage (MetaMask Popup)
+	User->>Frontend (MetaMask): 4. Signieren mit Private Key
+	Frontend (MetaMask)->>Blockchain: 5. Transaktion senden
+	Blockchain-->>Frontend (MetaMask): 6. Bestätigung/Receipt
+	Frontend (MetaMask)->>Backend (API): 7. Optional: Info an Backend (z.B. Offchain-DB aktualisieren)
+	Backend (API)->>Backend (API): 8. Optional: Offchain-Logik (z.B. Sharing, Metadaten)
+	Backend (API)->>Frontend (MetaMask): 9. Antwort
+	Frontend (MetaMask)->>User: 10. Ergebnis anzeigen
+
+	Note over Backend (API): Backend liest Blockchain-Daten
+	Backend (API)->>Blockchain: 11. Read-Only Calls (z.B. verifyCredential)
+	Blockchain-->>Backend (API): 12. Daten
+	Backend (API)->>Frontend (MetaMask): 13. Antwort
+	Frontend (MetaMask)->>User: 14. Anzeige
+```
