@@ -3,12 +3,10 @@ export class MetaMaskAdapter {
   name = 'MetaMask';
   icon = '/MetaMask-icon-fox.svg';
 
-  // check if MetaMask is available in the browser
   isAvailable(): boolean {
     return typeof window !== 'undefined' && !!(window as any).ethereum && (window as any).ethereum.isMetaMask;
   }
 
-  // connect to MetaMask and return the first account address
   async connect(): Promise<string | null> {
     const ethereum = (window as any).ethereum;
     if (!ethereum) return null;
@@ -20,6 +18,39 @@ export class MetaMaskAdapter {
       return null;
     } catch {
       return null;
+    }
+  }
+
+  // Switch to Sepolia, add it if not yet in MetaMask
+  async switchToSepolia(): Promise<boolean> {
+    const ethereum = (window as any).ethereum;
+    if (!ethereum) return false;
+    try {
+      await ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: '0xaa36a7' }],
+      });
+      return true;
+    } catch (error: any) {
+      // 4902 = chain not added yet
+      if (error.code === 4902) {
+        try {
+          await ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: '0xaa36a7',
+              chainName: 'Sepolia Testnet',
+              rpcUrls: ['https://rpc.sepolia.org'],
+              nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+              blockExplorerUrls: ['https://sepolia.etherscan.io'],
+            }],
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      }
+      return false;
     }
   }
 }

@@ -13,6 +13,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiUrl: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
+      contractAddress: process.env.CONTRACT_ADDRESS || '',
       PINATA_JWT: process.env.PINATA_JWT || '',
       PINATA_API_URL: process.env.PINATA_API_URL || 'https://api.pinata.cloud/pinning/pinFileToIPFS'
     }

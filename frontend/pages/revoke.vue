@@ -45,6 +45,7 @@ import { CredentialService } from '../services/credentials/CredentialService'
 
 const config = useRuntimeConfig()
 const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
+const CONTRACT_ADDRESS = String(config.public.contractAddress || '')
 const id = ref('')
 const message = ref('')
 const revoking = ref(false)
@@ -53,7 +54,10 @@ const handleRevoke = async () => {
   revoking.value = true
   message.value = ''
   try {
-    const response = await credentialService.revoke(parseInt(id.value, 10))
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('Missing contract address. Set CONTRACT_ADDRESS in frontend .env')
+    }
+    const response = await credentialService.revoke(CONTRACT_ADDRESS, parseInt(id.value, 10))
     if (response.success) {
       message.value = 'Credential revoked successfully!'
       id.value = ''

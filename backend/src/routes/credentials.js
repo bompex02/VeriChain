@@ -11,13 +11,11 @@ const credentialController = new CredentialController(new CredentialService());
 router.get("/mine", authWallet, asyncHandler(credentialController.getMine)); // get own credentials (authenticated)
 router.get("/public/:id", asyncHandler(credentialController.getPublic)); // get a public credential by id (no auth)
 router.get("/shared/:id", authWallet, asyncHandler(credentialController.getShared)); // get a shared credential by id (authenticated)
+router.get("/sharing/:id", authWallet, asyncHandler(credentialController.getSharing)); // get sharing status (only owner, authenticated)
 router.post("/set-sharing", authWallet, asyncHandler(credentialController.setSharing)); // set sharing status (only owner, authenticated)
 
 
 router.get("/all", asyncHandler(credentialController.getAll));
-router.post("/issue", asyncHandler(credentialController.issue));
-router.post("/activate", asyncHandler(credentialController.activate));
 router.get("/verify/:id", asyncHandler(credentialController.verify));
-router.post("/revoke", asyncHandler(credentialController.revoke));
 
 export default router;

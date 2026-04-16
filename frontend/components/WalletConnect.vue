@@ -44,11 +44,19 @@ async function connectWallet() {
   }
   isConnecting.value = true
   try {
+    // 1. Switch to Sepolia first
+    const switched = await wallet.value.switchToSepolia()
+    if (!switched) {
+      alert('Could not switch to Sepolia network!')
+      return
+    }
+
+    // 2. Then connect
     const acc = await wallet.value.connect()
     if (acc) {
       account.value = acc
       isConnected.value = true
-      provideWallet(acc, (window as any).ethereum)
+      provideWallet(acc, (window as any).ethereum)  // war: sepolia — das war falsch
     } else {
       isConnected.value = false
       account.value = null

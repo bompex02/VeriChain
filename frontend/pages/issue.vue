@@ -179,6 +179,7 @@ import type { CredentialFormData } from '../types/credential'
 const config = useRuntimeConfig()
 const { uploadFile } = usePinataClient(String(config.public.PINATA_JWT))
 const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
+const CONTRACT_ADDRESS = String(config.public.contractAddress || '')
 
 const emptyForm = (): CredentialFormData => ({
   recipient: '',
@@ -243,16 +244,19 @@ const handleSubmit = async () => {
 
     if (!uri) throw new Error('IPFS upload failed')
 
-    const response = await credentialService.issue(form.value.recipient, uri)
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('Missing contract address. Set CONTRACT_ADDRESS in frontend .env')
+    }
 
-    if (response.success) {
-      success.value = true
-      txHash.value = response.txHash
-      form.value = emptyForm()
-      selectedFile.value = null
-    } else {
+    const response = await credentialService.issue(CONTRACT_ADDRESS, form.value.recipient, uri)
+    if (!response.success) {
       throw new Error('Failed to issue credential')
     }
+
+    success.value = true
+    txHash.value = response.txHash
+    form.value = emptyForm()
+    selectedFile.value = null
   } catch (err: any) {
     error.value = err.message || 'An error occurred'
   } finally {

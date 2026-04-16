@@ -1,9 +1,16 @@
+
 import type {
+  SharingInfo,
+  SetSharingRequest,
+  SetSharingResponse,
   CredentialMetadata,
   CredentialRecord,
   MetadataViewResult,
 } from '../../types/credential';
+
 import { ApiClient } from '../http/ApiClient';
+import { ethers } from 'ethers';
+import abi from '../../../shared/abi.json';
 
 interface TxResponse {
   success: boolean;
@@ -22,19 +29,56 @@ export class CredentialService {
     return Array.isArray(response) ? (response as CredentialRecord[]) : [];
   }
 
-  async issue(recipient: string, uri: string): Promise<TxResponse> {
-    return await this.apiClient.post<TxResponse, { recipient: string; uri: string }>('/credentials/issue', {
-      recipient,
-      uri,
-    });
+
+  private async getWalletAuthHeaders(): Promise<Record<string, string>> {
+    if (!(window as any).ethereum) {
+      throw new Error('MetaMask is not available');
+    }
+
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const address = await signer.getAddress();
+    const nonce = `verichain-sharing-${Date.now()}`;
+    const signature = await signer.signMessage(nonce);
+
+    return {
+      'x-wallet-address': address,
+      'x-wallet-signature': signature,
+      'x-wallet-nonce': nonce,
+    };
   }
 
-  async revoke(id: number): Promise<TxResponse> {
-    return await this.apiClient.post<TxResponse, { id: number }>('/credentials/revoke', { id });
+  // Issue credential directly via MetaMask/ethers.js
+  async issue(contractAddress: string, recipient: string, uri: string): Promise<TxResponse> {
+    if (!(window as any).ethereum) throw new Error('MetaMask is not available');
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, abi.abi, signer);
+    const tx = await contract.issueCredential(recipient, uri);
+    await tx.wait();
+    return { success: true, txHash: tx.hash };
   }
 
-  async activate(id: number): Promise<TxResponse> {
-    return await this.apiClient.post<TxResponse, { id: number }>('/credentials/activate', { id });
+  // Revoke directly via MetaMask/ethers.js
+  async revoke(contractAddress: string, id: number): Promise<TxResponse> {
+    if (!(window as any).ethereum) throw new Error('MetaMask is not available');
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, abi.abi, signer);
+    const tx = await contract.revokeCredential(id);
+    await tx.wait();
+    return { success: true, txHash: tx.hash };
+  }
+
+  // Activate directly via MetaMask/ethers.js
+  async activate(contractAddress: string, id: number): Promise<TxResponse> {
+    if (!(window as any).ethereum) throw new Error('MetaMask is not available');
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const contract = new ethers.Contract(contractAddress, abi.abi, signer);
+    const tx = await contract.activateCredential(id);
+    await tx.wait();
+    return { success: true, txHash: tx.hash };
   }
 
   async verify(id: string): Promise<boolean> {
@@ -119,5 +163,21 @@ export class CredentialService {
 
   static hasExternalUri(uri: string): boolean {
     return uri.startsWith('http://') || uri.startsWith('https://') || uri.startsWith('ipfs://');
+  }
+
+  // Get sharing info for a credential (owner-authenticated via signed wallet nonce)
+  async getSharing(id: number): Promise<SharingInfo> {
+    const headers = await this.getWalletAuthHeaders();
+    return await this.apiClient.get<SharingInfo>(`/credentials/sharing/${id}`, headers);
+  }
+
+  // Set sharing info for a credential (owner-authenticated via signed wallet nonce)
+  async setSharing(req: SetSharingRequest): Promise<SetSharingResponse> {
+    const headers = await this.getWalletAuthHeaders();
+    return await this.apiClient.post<SetSharingResponse, SetSharingRequest>(
+      '/credentials/set-sharing',
+      req,
+      headers
+    );
   }
 }

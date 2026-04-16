@@ -1,6 +1,6 @@
 import contractGateway from './contractService.js';
 import { ApiError } from '../errors/ApiError.js';
-import { isAddress } from 'ethers';
+import { getMongoDb } from '../db/mongoClient.js';
 
 export class CredentialService {
   constructor(gateway = contractGateway) {
@@ -39,17 +39,16 @@ export class CredentialService {
       const credential = await contract.credentials(i);
       if (credential.recipient.toLowerCase() !== ownerAddress.toLowerCase()) continue;
       const sharing = await this.getCredentialSharing(i);
-      credentials.push(
-        new Credential(
-        i,
-        credential.issuer,
-        credential.recipient,
-        credential.metadataURI,
-        Number(credential.timestamp),
-        credential.revoked,
-        sharing.isPublic,
-        sharing.sharedWith,
-      ));
+      credentials.push({
+        id: i,
+        issuer: credential.issuer,
+        recipient: credential.recipient,
+        metadataURI: credential.metadataURI,
+        timestamp: Number(credential.timestamp),
+        revoked: credential.revoked,
+        isPublic: sharing.isPublic,
+        sharedWith: sharing.sharedWith,
+      });
     }
     return credentials;
   }
@@ -60,16 +59,16 @@ export class CredentialService {
     const credential = await contract.credentials(id);
     const sharing = await this.getCredentialSharing(id);
     if (!sharing.isPublic) throw new ApiError('Credential is not public', 403);
-    return new Credential(
+    return {
       id,
-      credential.issuer,
-      credential.recipient,
-      credential.metadataURI,
-      Number(credential.timestamp),
-      credential.revoked,
-      true,
-      sharing.sharedWith,
-    );
+      issuer: credential.issuer,
+      recipient: credential.recipient,
+      metadataURI: credential.metadataURI,
+      timestamp: Number(credential.timestamp),
+      revoked: credential.revoked,
+      isPublic: true,
+      sharedWith: sharing.sharedWith,
+    };
   }
 
   // fetch a credential if it is shared with the given address
@@ -78,77 +77,69 @@ export class CredentialService {
     const credential = await contract.credentials(id);
     const sharing = await this.getCredentialSharing(id);
     if (!sharing.sharedWith.includes(address.toLowerCase())) throw new ApiError('Credential not shared with you', 403);
-    return new Credential(
+    return {
       id,
-      credential.issuer,
-      credential.recipient,
-      credential.metadataURI,
-      Number(credential.timestamp),
-      credential.revoked,
-      sharing.isPublic,
-      sharing.sharedWith,
-    );
+      issuer: credential.issuer,
+      recipient: credential.recipient,
+      metadataURI: credential.metadataURI,
+      timestamp: Number(credential.timestamp),
+      revoked: credential.revoked,
+      isPublic: sharing.isPublic,
+      sharedWith: sharing.sharedWith,
+    };
   }
 
-  // Dummy: Fetch sharing info from Offchain-DB (here: in-memory, TODO: DB)
+  // fetch sharing info from MongoDB, return default if not found
   async getCredentialSharing(id) {
-    // TODO: Replace with DB (e.g., MongoDB, Postgres, etc.)
-    if (!this._sharing) this._sharing = {};
-    if (!this._sharing[id]) {
-      this._sharing[id] = { isPublic: false, sharedWith: [] };
+    try {
+      const db = getMongoDb();
+      const sharingInfo = await db.collection('credentialSharing').findOne({ credentialId: id });
+      if (sharingInfo) {
+        return sharingInfo;
+      }
+      return { isPublic: false, sharedWith: [] };
+    } catch (err) {
+      console.error('MongoDB error in getCredentialSharing:', err);
+      return { isPublic: false, sharedWith: [] };
     }
-    return this._sharing[id];
   }
 
-  // set sharing status of a credential (only owner, Offchain-DB)
-  async setCredentialSharing(id, { isPublic, sharedWith, ownerAddress }) {
+  // get sharing status for owner only
+  async getCredentialSharingForOwner(id, ownerAddress) {
+    const parsedId = this.parseId(id);
     const contract = this.gateway.getContract();
-    const credential = await contract.credentials(id);
+    const credential = await contract.credentials(parsedId);
+    if (credential.recipient.toLowerCase() !== ownerAddress.toLowerCase()) {
+      throw new ApiError('Only the owner can read sharing status', 403);
+    }
+    return await this.getCredentialSharing(parsedId);
+  }
+
+
+  // set sharing status of a credential (only owner, MongoDB)
+  async setCredentialSharing(id, { isPublic, sharedWith, ownerAddress }) {
+    const parsedId = this.parseId(id);
+    const contract = this.gateway.getContract();
+    const credential = await contract.credentials(parsedId);
     if (credential.recipient.toLowerCase() !== ownerAddress.toLowerCase()) {
       throw new ApiError('Only the owner can change sharing status', 403);
     }
-    if (!this._sharing) this._sharing = {};
-    this._sharing[id] = {
-      isPublic: !!isPublic,
-      sharedWith: Array.isArray(sharedWith) ? sharedWith.map(a => a.toLowerCase()) : [],
-    };
-    return this._sharing[id];
-  }
-
-  // issue a new credential on the blockchain with the given recipient and metadata URI
-  async issueCredential(recipient, uri) {
-    if (!recipient || !isAddress(recipient)) {
-      throw new ApiError('Field "recipient" is required and must be a valid Ethereum address.', 400);
+    try {
+      const db = getMongoDb();
+      const update = {
+        isPublic: !!isPublic,
+        sharedWith: Array.isArray(sharedWith) ? sharedWith.map(a => a.toLowerCase()) : [],
+      };
+      await db.collection('credentialSharing').updateOne(
+        { credentialId: parsedId },
+        { $set: update },
+        { upsert: true }
+      );
+      return update;
+    } catch (err) {
+      console.error('MongoDB error in setCredentialSharing:', err);
+      throw new ApiError('Database error while saving sharing status', 500);
     }
-    if (!uri || typeof uri !== 'string') {
-      throw new ApiError('Field "uri" is required.', 400);
-    }
-
-    const contract = this.gateway.getContract();
-    const tx = await contract.issueCredential(recipient, uri);
-    await tx.wait();
-
-    return { success: true, txHash: tx.hash };
-  }
-
-  // revoke a credential on the blockchain with the given ID
-  async revokeCredential(id) {
-    const parsedId = this.parseId(id);
-    const contract = this.gateway.getContract();
-    const tx = await contract.revokeCredential(parsedId);
-    await tx.wait();
-
-    return { success: true, txHash: tx.hash };
-  }
-
-  // activate a credential on the blockchain with the given ID
-  async activateCredential(id) {
-    const parsedId = this.parseId(id);
-    const contract = this.gateway.getContract();
-    const tx = await contract.activateCredential(parsedId);
-    await tx.wait();
-
-    return { success: true, txHash: tx.hash };
   }
 
   // verify a credential on the blockchain with the given ID and return its status

@@ -25,6 +25,7 @@
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recipient</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issuer</th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visibility</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Issued At</th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
@@ -46,6 +47,14 @@
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
                   {{ shortenAddress(cred.issuer) }}
                 </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                  <span
+                    :class="cred.isPublic ? 'bg-blue-100 text-blue-800' : ((cred.sharedWith?.length || 0) > 0 ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700')"
+                    class="inline-flex px-2 py-1 text-xs font-semibold rounded-full"
+                  >
+                    {{ cred.isPublic ? 'Public' : ((cred.sharedWith?.length || 0) > 0 ? 'Shared' : 'Private') }}
+                  </span>
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {{ new Date(cred.timestamp * 1000).toLocaleDateString() }}
                 </td>
@@ -56,6 +65,12 @@
                       class="text-indigo-600 hover:text-indigo-900"
                     >
                       View
+                    </button>
+                    <button
+                      @click="openSharingModal(cred)"
+                      class="text-amber-600 hover:text-amber-900"
+                    >
+                      Sharing
                     </button>
                     <button
                       v-if="!cred.revoked"
@@ -113,6 +128,17 @@
           </div>
         </div>
       </div>
+
+      <!-- Sharing Modal -->
+      <div v-if="showSharingModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full" @click="closeSharingModal">
+        <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-2/3 lg:w-1/2 shadow-lg rounded-md bg-white" @click.stop>
+          <CredentialSharingDialog
+            v-model="sharingDraft"
+            @save="saveSharing"
+            @cancel="closeSharingModal"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -123,10 +149,12 @@ import { ref, onMounted, computed } from 'vue'
 import { useRuntimeConfig } from 'nuxt/app'
 import { ApiClient } from '../services/http/ApiClient'
 import { CredentialService } from '../services/credentials/CredentialService'
-import type { CredentialRecord } from '../types/credential'
+import CredentialSharingDialog from '../components/credentials/CredentialSharingDialog.vue'
+import type { CredentialRecord, SharingInfo } from '../types/credential'
 
 const config = useRuntimeConfig()
 const credentialService = new CredentialService(new ApiClient(String(config.public.apiUrl)))
+const CONTRACT_ADDRESS = String(config.public.contractAddress || '')
 
 const credentials = ref<CredentialRecord[]>([])
 const loading = ref(true)
@@ -136,6 +164,9 @@ const modalLoading = ref(false)
 const modalError = ref('')
 const modalContent = ref('')
 const modalUri = ref('')
+const showSharingModal = ref(false)
+const selectedCredential = ref<CredentialRecord | null>(null)
+const sharingDraft = ref<SharingInfo>({ isPublic: false, sharedWith: [] })
 
 const hasOriginalFileLink = computed(() => {
   return CredentialService.hasExternalUri(modalUri.value)
@@ -188,11 +219,53 @@ const closeModal = () => {
   modalUri.value = ''
 }
 
+const openSharingModal = async (cred: CredentialRecord) => {
+  selectedCredential.value = cred
+  sharingDraft.value = {
+    isPublic: !!cred.isPublic,
+    sharedWith: Array.isArray(cred.sharedWith) ? [...cred.sharedWith] : [],
+  }
+
+  try {
+    // Best effort: refresh latest off-chain sharing state from backend.
+    const latest = await credentialService.getSharing(cred.id)
+    sharingDraft.value = latest
+  } catch {
+    // Keep fallback values from the loaded credential list.
+  }
+
+  showSharingModal.value = true
+}
+
+const closeSharingModal = () => {
+  showSharingModal.value = false
+  selectedCredential.value = null
+}
+
+const saveSharing = async (payload: SharingInfo) => {
+  if (!selectedCredential.value) return
+
+  try {
+    await credentialService.setSharing({
+      id: selectedCredential.value.id,
+      isPublic: payload.isPublic,
+      sharedWith: payload.sharedWith,
+    })
+    await loadCredentials()
+    closeSharingModal()
+  } catch {
+    alert('Failed to update sharing settings')
+  }
+}
+
 const revokeCredential = async (id: number) => {
   if (!confirm('Are you sure you want to revoke this credential?')) return
 
   try {
-    await credentialService.revoke(id)
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('Missing contract address. Set CONTRACT_ADDRESS in frontend .env')
+    }
+    await credentialService.revoke(CONTRACT_ADDRESS, id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to revoke credential')
@@ -203,7 +276,10 @@ const activateCredential = async (id: number) => {
   if (!confirm('Are you sure you want to activate this credential?')) return
 
   try {
-    await credentialService.activate(id)
+    if (!CONTRACT_ADDRESS) {
+      throw new Error('Missing contract address. Set CONTRACT_ADDRESS in frontend .env')
+    }
+    await credentialService.activate(CONTRACT_ADDRESS, id)
     await loadCredentials() // Reload list
   } catch (err) {
     alert('Failed to activate credential')

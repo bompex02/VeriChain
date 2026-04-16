@@ -1,3 +1,18 @@
+export interface SharingInfo {
+  isPublic: boolean;
+  sharedWith: string[];
+}
+
+export interface SetSharingRequest extends Record<string, unknown> {
+  id: number;
+  isPublic: boolean;
+  sharedWith: string[];
+}
+
+export interface SetSharingResponse {
+  isPublic: boolean;
+  sharedWith: string[];
+}
 export interface CredentialRecord {
   id: number;
   issuer: string;
@@ -5,6 +20,8 @@ export interface CredentialRecord {
   metadataURI: string;
   timestamp: number;
   revoked: boolean;
+  isPublic?: boolean;
+  sharedWith?: string[];
 }
 
 export interface CredentialMetadata {
